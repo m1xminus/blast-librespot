@@ -34,15 +34,8 @@ func TestAlsaBackendUnsupportedOnWindows(t *testing.T) {
 	}
 }
 
-func TestPipeBackendUnsupportedOnWindows(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("pipe is supported on this platform")
-	}
-	_, err := NewOutput(&NewOutputOptions{Backend: "pipe"})
-	if err == nil {
-		t.Fatal("expected pipe to be unsupported on Windows")
-	}
-	if !strings.Contains(err.Error(), "not supported") {
-		t.Fatalf("pipe error = %q, want not supported", err)
-	}
-}
+// Pipe output IS supported on Windows (BLAST patch: driver-pipe-windows.go
+// dials a TCP loopback connection instead of the POSIX FIFO the Unix
+// variant uses, since Windows has no filesystem FIFO equivalent). See
+// driver-pipe_windows_test.go for the behavioral tests this replaces --
+// there is deliberately no "unsupported on Windows" test here anymore.
