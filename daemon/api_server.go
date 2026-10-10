@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -460,6 +461,15 @@ func (s *ConcreteApiServer) handleRequest(req ApiRequest, w http.ResponseWriter)
 	case s.requests <- req:
 	case <-pickup.C:
 		s.log.Warnf("nothing picked up request %s", req.Type)
+		// BLAST diagnostic: this means Run()'s single event loop never
+		// got back to its own select statement for the full timeout --
+		// something it called synchronously (an out.Pause/Resume, a
+		// player.Player command round-trip, etc.) is stuck. A full
+		// goroutine dump pinpoints exactly which goroutine is blocked
+		// on what, instead of guessing from the symptom alone.
+		buf := make([]byte, 1<<20)
+		n := runtime.Stack(buf, true)
+		s.log.Warnf("goroutine dump at stall:\n%s", buf[:n])
 		w.WriteHeader(http.StatusServiceUnavailable)
 		return
 	}
