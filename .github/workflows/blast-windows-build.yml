@@ -65,6 +65,10 @@ jobs:
           # The runtime DLLs this binary dynamically links against (same
           # ones upstream's own release ships alongside the exe) -- BLAST's
           # build pipeline bundles these next to go-librespot.exe too.
+          # libwinpthread-1.dll specifically: easy to miss testing locally
+          # on a dev machine that already has it on PATH from some other
+          # MinGW install -- it's not optional on a clean Windows install
+          # (confirmed: a real user hit exactly this missing-DLL error).
           cp /mingw64/bin/libFLAC.dll out/
           cp /mingw64/bin/libFLAC++.dll out/
           cp /mingw64/bin/libogg-0.dll out/
@@ -74,6 +78,7 @@ jobs:
           cp /mingw64/bin/libmpg123-0.dll out/
           cp /mingw64/bin/libout123-0.dll out/
           cp /mingw64/bin/libsyn123-0.dll out/
+          cp /mingw64/bin/libwinpthread-1.dll out/
           mv go-librespot.exe out/
           cd out && 7z a -tzip ../go-librespot_windows_amd64_blast.zip *
 
