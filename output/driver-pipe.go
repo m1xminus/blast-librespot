@@ -6,15 +6,20 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"os"
 	"sync"
 
 	librespot "github.com/devgianlu/go-librespot"
 )
 
+// file is an io.WriteCloser, not a concrete *os.File, specifically so the
+// Windows variant (driver-pipe-windows.go) can plug in a net.Conn (a TCP
+// loopback socket) instead -- Windows has no POSIX FIFO equivalent that
+// os.OpenFile can open, see that file's own comment for why. The Unix
+// variant (driver-pipe-unix.go) still hands in a real *os.File, which
+// already satisfies this interface unchanged.
 type pipeOutput struct {
 	reader librespot.Float32Reader
-	file   *os.File
+	file   io.WriteCloser
 
 	lock sync.Mutex
 	cond *sync.Cond

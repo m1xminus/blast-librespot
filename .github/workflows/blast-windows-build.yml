@@ -1,0 +1,85 @@
+name: BLAST Windows build
+
+# This fork's only reason to exist: driver-pipe-windows.go replaces
+# upstream's "pipe output is not supported on Windows" stub with a TCP
+# loopback dial, so BLAST (a Windows cart-wall app) can mix Spotify audio
+# into its own mixer instead of only playing it to a standalone WASAPI
+# device. Everything else is untouched upstream code. This workflow is
+# deliberately just the Windows half of upstream's own release.yml
+# build-windows job -- same MSYS2/Go recipe, since that's already a proven
+# build path for this exact project.
+
+on:
+  push:
+    branches: [ 'master' ]
+  workflow_dispatch: {}
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.25'
+
+      - name: Install MinGW and decode libraries
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-pkg-config
+            mingw-w64-x86_64-libogg
+            mingw-w64-x86_64-libvorbis
+            mingw-w64-x86_64-flac
+            mingw-w64-x86_64-mpg123
+          path-type: inherit
+
+      - name: Configure CGO for MSYS2
+        run: |
+          {
+            echo "CC=$(cygpath -m "$(command -v gcc)")"
+            echo "PKG_CONFIG=$(cygpath -m "$(command -v pkg-config)")"
+            echo "PKG_CONFIG_PATH=$(cygpath -m /mingw64/lib/pkgconfig)"
+          } >> "$GITHUB_ENV"
+          # libogg.dll.a omits ogg_stream_iovecin; force -logg onto libogg.a.
+          if [ -f /mingw64/lib/libogg.dll.a ]; then
+            mv /mingw64/lib/libogg.dll.a /mingw64/lib/libogg.dll.a.unused
+          fi
+
+      - name: Compile Windows binary
+        env:
+          CGO_ENABLED: 1
+        run: |
+          export PATH="/mingw64/bin:${PATH}"
+          mkdir -p out
+          go build -o go-librespot.exe -ldflags "-s -w" ./cmd/daemon
+          # The runtime DLLs this binary dynamically links against (same
+          # ones upstream's own release ships alongside the exe) -- BLAST's
+          # build pipeline bundles these next to go-librespot.exe too.
+          cp /mingw64/bin/libFLAC.dll out/
+          cp /mingw64/bin/libFLAC++.dll out/
+          cp /mingw64/bin/libogg-0.dll out/
+          cp /mingw64/bin/libvorbis-0.dll out/
+          cp /mingw64/bin/libvorbisenc-2.dll out/
+          cp /mingw64/bin/libvorbisfile-3.dll out/
+          cp /mingw64/bin/libmpg123-0.dll out/
+          cp /mingw64/bin/libout123-0.dll out/
+          cp /mingw64/bin/libsyn123-0.dll out/
+          mv go-librespot.exe out/
+          cd out && 7z a -tzip ../go-librespot_windows_amd64_blast.zip *
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-librespot-windows-amd64-blast
+          path: go-librespot_windows_amd64_blast.zip
+          retention-days: 30
