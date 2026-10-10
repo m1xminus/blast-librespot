@@ -110,29 +110,56 @@ func (out *pipeOutput) outputLoop() {
 			}
 		}
 
+		var nn int
 		if n > 0 {
-			nn := out.transform(floats[:n], bytes)
-			_, err := out.file.Write(bytes[:nn])
-			if err != nil {
-				out.err <- err
+			nn = out.transform(floats[:n], bytes)
+		}
+
+		// file.Write can legitimately block for as long as the reader on
+		// the other end (BLAST's own pipe reader, over the TCP loopback
+		// swapped in on Windows -- see driver-pipe-windows.go) is not
+		// draining it: that reader intentionally provides real
+		// backpressure now, so a track whose voice stopped being rendered
+		// (switched away from, stopped) leaves this blocked until BLAST
+		// either resumes draining it or tears the connection down.
+		// out.lock must not be held across that block: Pause/Resume/Drop
+		// (called from the daemon's single command-processing goroutine,
+		// e.g. to switch to a different track) all need this same lock,
+		// and a blocked Write while holding it froze that goroutine
+		// entirely -- confirmed directly: pressing a second Spotify pad
+		// while the first was still mid-playback made every subsequent
+		// REST call (including /player/play for the new track) hang
+		// until BLAST's own client-side timeout fired. Releasing the lock
+		// here, before the write, and only re-acquiring it briefly
+		// afterward to update state, keeps that goroutine free to process
+		// Pause/Resume/the next track's Play regardless of how long this
+		// particular write is stuck.
+		out.lock.Unlock()
+
+		if n > 0 {
+			if _, werr := out.file.Write(bytes[:nn]); werr != nil {
+				out.lock.Lock()
+				out.err <- werr
 				out.closed = true
 				out.lock.Unlock()
 				break
 			}
 		}
 
+		out.lock.Lock()
 		if errors.Is(err, io.EOF) {
 			// Reached EOF, move to a "paused" state.
 			out.paused = true
+			out.lock.Unlock()
 		} else if err != nil {
 			// Got some other error. Close the output and report the error.
 			out.err <- err
 			out.closed = true
 			out.lock.Unlock()
 			break
+		} else {
+			out.lock.Unlock()
 		}
-
-		out.lock.Unlock()
 	}
 
 	_ = out.Close()
